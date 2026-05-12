@@ -1,4 +1,4 @@
-import os, json, xlsxwriter
+import os, xlsxwriter, json
 from datetime import datetime
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
