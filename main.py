@@ -8,6 +8,9 @@ from kivy.metrics import dp
 from kivy.utils import platform
 from kivy.uix.scrollview import ScrollView
 
+if platform == 'android':
+    from android.permissions import request_permissions, Permission
+    request_permissions([Permission.READ_EXTERNAL_STORAGE, Permission.WRITE_EXTERNAL_STORAGE])
 class LotoUniversel(BoxLayout):
     def __init__(self, **kwargs):
         super(LotoUniversel, self).__init__(**kwargs)
@@ -36,21 +39,24 @@ class LotoUniversel(BoxLayout):
             base = os.path.join(primary_external_storage_path(), 'Download')
         else:
             base = os.getcwd()
+
         return (os.path.join(base, 'produits.json'), 
                 os.path.join(base, f"Ventes_{date_s}.xlsx"), 
                 os.path.join(base, f".session_{date_s}.txt"))
-
+    
     def charger_config_json(self):
         if os.path.exists(self.path_json):
             try:
                 with open(self.path_json, 'r', encoding='utf-8') as f:
                     content = f.read().strip()
-                    if not content: # Si le fichier est vide
-                        print("Le fichier JSON est vide !")
+                    if not content:
                         return self.default_config()
                     return json.loads(content)
-            except json.JSONDecodeError:
-                print("Erreur de formatage dans le JSON !")
+            except PermissionError:
+                print("ERREUR : Accès refusé par Android. Vérifiez les permissions !")
+                return self.default_config()
+            except Exception as e:
+                print(f"Erreur lors de la lecture : {e}")
                 return self.default_config()
         return self.default_config()
 
@@ -79,7 +85,7 @@ class LotoUniversel(BoxLayout):
         layout_produits.bind(minimum_height=layout_produits.setter('height'))
 
         for p in self.produits:
-            row = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(75), spacing=dp(10))
+            row = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(65), spacing=dp(10))
             
             # Label Nom + Total cumulé discret
             # Avant (plante si l'ID n'existe pas dans les stats)
@@ -123,17 +129,24 @@ class LotoUniversel(BoxLayout):
             self.lbl_payer.text = f"À PAYER : {self.cur_prix_vente:.2f} €"
 
     def valider_vente(self, instance):
-        if self.cur_prix_vente == 0: return
-        
-        # Transfert vers Global
+        # On vérifie si on a au moins un produit à vendre
+        if self.cur_prix_vente <= 0:
+            return
+
+        # On transfère les compteurs temporaires vers les compteurs globaux
         for p in self.produits:
-            self.glob_stats[p['id']] += self.cur_stats[p['id']]
-            self.cur_stats[p['id']] = 0 # Reset
+            p_id = p['id']
+            # C'est ici que l'erreur 'c10' arrivait si on forçait l'ID
+            self.glob_stats[p_id] += self.cur_stats[p_id]
+            self.cur_stats[p_id] = 0 # On remet à zéro pour la prochaine vente
             
         self.grand_total_argent += self.cur_prix_vente
         self.cur_prix_vente = 0.0
         
+        # On sauvegarde les changements
         self.sauvegarde_fichiers()
+        
+        # On rafraîchit l'affichage
         self.create_interface()
 
     def sauvegarde_fichiers(self):
@@ -146,28 +159,37 @@ class LotoUniversel(BoxLayout):
         # 2. Sauvegarde EXCEL
         try:
             wb = xlsxwriter.Workbook(self.path_xlsx)
+            fmt_money = wb.add_format({'num_format': '#,##0.00 €'})
+            fmt_bold = wb.add_format({'bold': True})
+            fmt_res_money = wb.add_format({'bold': True, 'bg_color': '#D3D3D3','num_format': '#,##0.00 €'})
+            fmt_res = wb.add_format({'bold': True, 'bg_color': '#D3D3D3'})
             ws = wb.add_worksheet("Ventes")
             headers = ["PRODUIT", "QUANTITÉ", "PRIX UNIT.", "TOTAL"]
-            for c, h in enumerate(headers): ws.write(0, c, h)
+            for c, h in enumerate(headers): ws.write(0, c, h, fmt_bold)
             
             row_idx = 1
             for p in self.produits:
                 qte = self.glob_stats[p['id']]
                 ws.write(row_idx, 0, p['nom'])
                 ws.write(row_idx, 1, qte)
-                ws.write(row_idx, 2, p['prix'])
-                ws.write(row_idx, 3, qte * p['prix'])
+                ws.write(row_idx, 2, p['prix'], fmt_money)
+                ws.write(row_idx, 3, qte * p['prix'], fmt_money)
                 row_idx += 1
             
-            ws.write(row_idx + 1, 2, "TOTAL GÉNÉRAL")
-            ws.write(row_idx + 1, 3, self.grand_total_argent)
+            ws.write(row_idx + 1, 2, "TOTAL GÉNÉRAL", fmt_res)
+            ws.write(row_idx + 1, 3, self.grand_total_argent, fmt_res_money)
             wb.close()
         except: pass
-
 class LotoApp(App):
     def build(self):
+        if platform == 'android':
+            request_permissions([
+                Permission.READ_EXTERNAL_STORAGE, 
+                Permission.WRITE_EXTERNAL_STORAGE,
+                Permission.MANAGE_EXTERNAL_STORAGE
+            ])
         self.icon = "icon.png"
         return LotoUniversel()
-
+    
 if __name__ == '__main__':
     LotoApp().run()
