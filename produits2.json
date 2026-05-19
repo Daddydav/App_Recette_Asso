@@ -1,0 +1,7 @@
+[
+    {"id": "caf", "nom": "Café", "prix": 1.0},
+    {"id": "sod", "nom": "Sodas", "prix": 2.0},
+    {"id": "bier", "nom": "Bière", "prix": 2.5},
+    {"id": "chip", "nom": "Chips", "prix": 1.0},
+    {"id": "gat", "nom": "Gateaux", "prix": 1.0}
+]

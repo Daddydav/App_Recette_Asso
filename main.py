@@ -7,6 +7,7 @@ from kivy.uix.button import Button
 from kivy.metrics import dp
 from kivy.utils import platform
 from kivy.uix.scrollview import ScrollView
+import configparser
 
 if platform == 'android':
     from android.permissions import request_permissions, Permission
@@ -32,6 +33,30 @@ class LotoUniversel(BoxLayout):
         self.restaurer_session_txt()
         self.create_interface()
 
+    def charger_fich_conf(self):
+        # Chemin vers le fichier ini dans Download
+        if platform == 'android':
+            from android.storage import primary_external_storage_path
+            path_ini = os.path.join(primary_external_storage_path(), 'Download', 'configuration.ini')
+        else:
+            path_ini = 'configuration.ini'
+
+        config = configparser.ConfigParser()
+
+        if os.path.exists(path_ini):
+            config.read(path_ini)
+            # On récupère les valeurs (en s'assurant qu'elles sont converties en float)
+            try:
+                s = config.get('Config', 'fich_conf', fallback='produits.json')
+                print("Succès", f"Fichier chargé depuis :\n{path_ini}")
+            except Exception as e:
+                print(f"Erreur de lecture ini, utilisation des prix par défaut: {e}")
+                s = 'produits.json'
+        else:
+            s = 'produits.json'
+
+        return s
+
     def get_all_paths(self):
         date_s = datetime.now().strftime('%Y-%m-%d')
         if platform == 'android':
@@ -40,7 +65,7 @@ class LotoUniversel(BoxLayout):
         else:
             base = os.getcwd()
 
-        return (os.path.join(base, 'produits.json'), 
+        return (os.path.join(base, self.charger_fich_conf()), 
                 os.path.join(base, f"Ventes_{date_s}.xlsx"), 
                 os.path.join(base, f".session_{date_s}.txt"))
     
@@ -121,7 +146,7 @@ class LotoUniversel(BoxLayout):
         self.add_widget(btn_v)
 
     def modifier_quantite(self, pid, delta):
-        if self.cur_stats[pid] + delta >= 0:
+        if self.cur_stats[pid] + delta + self.glob_stats[pid] >= 0: # On ne peut pas vendre plus que ce qu'on a
             self.cur_stats[pid] += delta
             getattr(self, f"lbl_cur_{pid}").text = str(self.cur_stats[pid])
             # Recalcul du prix total de la vente
@@ -130,8 +155,8 @@ class LotoUniversel(BoxLayout):
 
     def valider_vente(self, instance):
         # On vérifie si on a au moins un produit à vendre
-        if self.cur_prix_vente <= 0:
-            return
+        #if self.cur_prix_vente <= 0:
+        #    return
 
         # On transfère les compteurs temporaires vers les compteurs globaux
         for p in self.produits:
