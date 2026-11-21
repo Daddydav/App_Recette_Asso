@@ -1,6 +1,7 @@
 import os, xlsxwriter, json, math
 from datetime import datetime
 from kivy.app import App
+from kivy.graphics import Color, Line
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.button import Button
@@ -129,8 +130,43 @@ class LotoUniversel(BoxLayout):
         self.clear_widgets()
         
         # Header global
-        self.add_widget(Label(text=f"SESSION CUMULÉE : {self.grand_total_argent:.2f}€", 
-                             size_hint_y=None, height=dp(30), font_size='16sp', color=(0.8,0.8,0.8,1)))
+        header = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(50),
+                           spacing=dp(10))
+        btn_produits = Button(text="", size_hint=(None, None), size=(dp(48), dp(48)),
+                              background_color=(0.2, 0.35, 0.65, 1))
+        with btn_produits.canvas.after:
+            Color(1, 1, 1, 1)
+            contour_crayon = Line(points=[], width=dp(1.8))
+            trait_crayon = Line(points=[], width=dp(1.2))
+            cap_crayon = Line(points=[], width=dp(1.2))
+
+        def dessiner_crayon(bouton, _valeur):
+            cx, cy = bouton.center
+            echelle = min(bouton.size) * 0.85
+            racine_deux = 2 ** 0.5
+
+            def point(position, largeur):
+                return [
+                    cx + (position - largeur) * echelle / racine_deux,
+                    cy + (position + largeur) * echelle / racine_deux
+                ]
+
+            contour_crayon.points = (
+                point(-0.42, 0) + point(-0.20, -0.10) + point(0.30, -0.10)
+                + point(0.36, -0.05) + point(0.36, 0.05)
+                + point(0.30, 0.10) + point(-0.20, 0.10) + point(-0.42, 0)
+            )
+            trait_crayon.points = point(-0.11, 0) + point(0.25, 0)
+            cap_crayon.points = point(0.25, -0.10) + point(0.25, 0.10)
+
+        btn_produits.bind(pos=dessiner_crayon, size=dessiner_crayon)
+        dessiner_crayon(btn_produits, None)
+        btn_produits.bind(on_press=self.ouvrir_editeur_produits)
+        header.add_widget(Label(text=f"SESSION CUMULÉE : {self.grand_total_argent:.2f}€",
+                                font_size='16sp', color=(0.8, 0.8, 0.8, 1)))
+        header.add_widget(btn_produits)
+    
+        self.add_widget(header)
 
         # Zone de défilement pour les produits (si la liste est longue)
         scroll = ScrollView(size_hint=(1, 1))
@@ -174,11 +210,6 @@ class LotoUniversel(BoxLayout):
                       background_color=(0.1, 0.7, 0.2, 1), font_size='22sp', bold=True)
         btn_v.bind(on_press=self.valider_vente)
         self.add_widget(btn_v)
-
-        btn_produits = Button(text="GÉRER LES PRODUITS", size_hint_y=None, height=dp(55),
-                              background_color=(0.2, 0.35, 0.65, 1), font_size='18sp', bold=True)
-        btn_produits.bind(on_press=self.ouvrir_editeur_produits)
-        self.add_widget(btn_produits)
 
     def ouvrir_editeur_produits(self, instance):
         contenu = BoxLayout(orientation='vertical', spacing=dp(8), padding=dp(10))

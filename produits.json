@@ -1,7 +1,27 @@
 [
-    {"id": "c10", "nom": "10 Cartons", "prix": 20.0},
-    {"id": "c4", "nom": "4 Cartons", "prix": 10.0},
-    {"id": "c1", "nom": "1 Carton", "prix": 3.0},
-    {"id": "enf", "nom": "Carton enfant", "prix": 1.0},
-    {"id": "p2", "nom": "Carton 2ème Partie", "prix": 1.0}
+    {
+        "id": "c10",
+        "nom": "10 Cartons",
+        "prix": 20.0
+    },
+    {
+        "id": "c4",
+        "nom": "4 Cartons",
+        "prix": 10.0
+    },
+    {
+        "id": "c1",
+        "nom": "1 Carton",
+        "prix": 3.0
+    },
+    {
+        "id": "enf",
+        "nom": "Carton enfant",
+        "prix": 1.0
+    },
+    {
+        "id": "p2",
+        "nom": "Carton 2ème Partie",
+        "prix": 1.0
+    }
 ]

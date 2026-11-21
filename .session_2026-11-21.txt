@@ -1,0 +1,1 @@
+{"stats": {"c10": 0, "c4": 0, "c1": 0, "enf": 0, "p2": 0, "item1": 0}, "total": 0.0, "historique_ventes": []}
