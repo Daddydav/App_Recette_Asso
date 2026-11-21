@@ -1,12 +1,15 @@
-import os, xlsxwriter, json
+import os, xlsxwriter, json, math
 from datetime import datetime
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.button import Button
+from kivy.uix.textinput import TextInput
+from kivy.uix.gridlayout import GridLayout
 from kivy.metrics import dp
 from kivy.utils import platform
 from kivy.uix.scrollview import ScrollView
+from kivy.uix.popup import Popup
 import configparser
 
 if platform == 'android':
@@ -29,6 +32,7 @@ class LotoUniversel(BoxLayout):
         self.glob_stats = {p['id']: 0 for p in self.produits}
         self.grand_total_argent = 0.0
         self.cur_prix_vente = 0.0
+        self.historique_ventes = []
 
         self.restaurer_session_txt()
         self.create_interface()
@@ -93,9 +97,33 @@ class LotoUniversel(BoxLayout):
             try:
                 with open(self.path_txt, "r") as f:
                     data = json.load(f)
-                    self.glob_stats = data.get('stats', self.glob_stats)
                     self.grand_total_argent = data.get('total', 0.0)
-            except: pass
+                    historique = data.get('historique_ventes')
+                    if historique is not None:
+                        self.historique_ventes = historique
+                        self.glob_stats = {}
+                        for ligne in historique:
+                            pid = ligne['id']
+                            self.glob_stats[pid] = self.glob_stats.get(pid, 0) + ligne['quantite']
+                    else:
+                        self.glob_stats.update(data.get('stats', {}))
+                        produits_par_id = {p['id']: p for p in self.produits}
+                        for pid, quantite in self.glob_stats.items():
+                            if quantite > 0:
+                                produit = produits_par_id.get(pid, {
+                                    'nom': f"Produit retiré ({pid})",
+                                    'prix': 0.0
+                                })
+                                self.historique_ventes.append({
+                                    'id': pid,
+                                    'nom': produit['nom'],
+                                    'prix': produit['prix'],
+                                    'quantite': quantite
+                                })
+            except (OSError, ValueError, TypeError, KeyError) as e:
+                print(f"Erreur lors de la restauration de la session : {e}")
+        for produit in self.produits:
+            self.glob_stats.setdefault(produit['id'], 0)
 
     def create_interface(self):
         self.clear_widgets()
@@ -122,7 +150,8 @@ class LotoUniversel(BoxLayout):
             btn_m = Button(text="-", size_hint_x=0.2, font_size='25sp', bold=True, background_color=(1.0, 0.0, 0.0, 1))
             btn_m.bind(on_press=lambda x, pid=p['id']: self.modifier_quantite(pid, -1))
             
-            lbl_qte = Label(text="0", size_hint_x=0.2, font_size='24sp', bold=True)
+            lbl_qte = Label(text=str(self.cur_stats.get(p['id'], 0)),
+                            size_hint_x=0.2, font_size='24sp', bold=True)
             setattr(self, f"lbl_cur_{p['id']}", lbl_qte)
             
             btn_p = Button(text="+", size_hint_x=0.2, font_size='25sp', bold=True, background_color=(0.0, 1.0, 0.0, 1))
@@ -135,7 +164,8 @@ class LotoUniversel(BoxLayout):
         self.add_widget(scroll)
 
         # Affichage Prix Vente en cours
-        self.lbl_payer = Label(text="À PAYER : 0.00 €", font_size='38sp', bold=True,
+        self.lbl_payer = Label(text=f"À PAYER : {self.cur_prix_vente:.2f} €",
+                              font_size='38sp', bold=True,
                               size_hint_y=None, height=dp(90), color=(0.2, 0.6, 1, 1))
         self.add_widget(self.lbl_payer)
 
@@ -145,8 +175,164 @@ class LotoUniversel(BoxLayout):
         btn_v.bind(on_press=self.valider_vente)
         self.add_widget(btn_v)
 
+        btn_produits = Button(text="GÉRER LES PRODUITS", size_hint_y=None, height=dp(55),
+                              background_color=(0.2, 0.35, 0.65, 1), font_size='18sp', bold=True)
+        btn_produits.bind(on_press=self.ouvrir_editeur_produits)
+        self.add_widget(btn_produits)
+
+    def ouvrir_editeur_produits(self, instance):
+        contenu = BoxLayout(orientation='vertical', spacing=dp(8), padding=dp(10))
+        scroll = ScrollView()
+        lignes = GridLayout(cols=1, spacing=dp(5), size_hint_y=None)
+        lignes.bind(minimum_height=lignes.setter('height'))
+        champs = []
+
+        def ajouter_ligne(produit):
+            ligne = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(48), spacing=dp(5))
+            nom = TextInput(text=produit['nom'], hint_text="Nom", multiline=False,
+                            size_hint_x=0.58)
+            prix = TextInput(text=str(produit['prix']), hint_text="Prix", multiline=False,
+                             input_filter='float', size_hint_x=0.25)
+            bouton_supprimer = Button(text="X", size_hint_x=0.17,
+                                      background_color=(0.8, 0.2, 0.2, 1))
+            entree = {'id': produit['id'], 'nom': nom, 'prix': prix, 'ligne': ligne}
+            bouton_supprimer.bind(on_press=lambda _btn, e=entree: supprimer_ligne(e))
+            ligne.add_widget(nom)
+            ligne.add_widget(prix)
+            ligne.add_widget(bouton_supprimer)
+            lignes.add_widget(ligne)
+            champs.append(entree)
+
+        def supprimer_ligne(entree):
+            lignes.remove_widget(entree['ligne'])
+            champs.remove(entree)
+
+        for produit in self.produits:
+            ajouter_ligne(produit)
+
+        scroll.add_widget(lignes)
+        contenu.add_widget(scroll)
+
+        btn_ajouter = Button(text="AJOUTER UN PRODUIT", size_hint_y=None, height=dp(45))
+        contenu.add_widget(btn_ajouter)
+
+        actions = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(50), spacing=dp(8))
+        btn_annuler = Button(text="ANNULER")
+        btn_enregistrer = Button(text="ENREGISTRER", background_color=(0.1, 0.7, 0.2, 1))
+        actions.add_widget(btn_annuler)
+        actions.add_widget(btn_enregistrer)
+        contenu.add_widget(actions)
+
+        popup = Popup(title="Modifier les produits", content=contenu,
+                      size_hint=(0.95, 0.9), auto_dismiss=False)
+
+        def ajouter_nouveau_produit(_btn):
+            ids = ({entree['id'] for entree in champs}
+                   | set(self.glob_stats)
+                   | {ligne['id'] for ligne in self.historique_ventes})
+            numero = 1
+            while f"item{numero}" in ids:
+                numero += 1
+            ajouter_ligne({'id': f"item{numero}", 'nom': '', 'prix': 0.0})
+
+        def enregistrer(_btn):
+            nouveaux_produits = []
+            try:
+                for entree in champs:
+                    nom = entree['nom'].text.strip()
+                    prix_texte = entree['prix'].text.strip().replace(',', '.')
+                    if not nom:
+                        raise ValueError("Chaque produit doit avoir un nom.")
+                    prix = float(prix_texte)
+                    if not math.isfinite(prix) or prix < 0:
+                        raise ValueError("Les prix doivent être des nombres positifs ou nuls.")
+                    nouveaux_produits.append({
+                        'id': entree['id'],
+                        'nom': nom,
+                        'prix': prix
+                    })
+
+                if not nouveaux_produits:
+                    raise ValueError("La liste doit contenir au moins un produit.")
+
+                nouveaux_ids = {p['id'] for p in nouveaux_produits}
+                produits_supprimes_avec_vente = [
+                    p['nom'] for p in self.produits
+                    if p['id'] not in nouveaux_ids and self.cur_stats.get(p['id'], 0) > 0
+                ]
+                if produits_supprimes_avec_vente:
+                    raise ValueError(
+                        "Terminez ou annulez les quantités en cours avant de supprimer : "
+                        + ", ".join(produits_supprimes_avec_vente)
+                    )
+
+                self.sauvegarder_session_txt()
+                self.sauvegarder_config_json(nouveaux_produits)
+            except (OSError, ValueError, TypeError) as e:
+                self.afficher_message("Enregistrement impossible", str(e))
+                return
+
+            anciennes_quantites = self.cur_stats
+            self.produits = nouveaux_produits
+            self.cur_stats = {
+                p['id']: anciennes_quantites.get(p['id'], 0) for p in self.produits
+            }
+            for p in self.produits:
+                self.glob_stats.setdefault(p['id'], 0)
+            self.cur_prix_vente = sum(
+                self.cur_stats[p['id']] * p['prix'] for p in self.produits
+            )
+            popup.dismiss()
+            self.create_interface()
+
+        btn_ajouter.bind(on_press=ajouter_nouveau_produit)
+        btn_annuler.bind(on_press=lambda _btn: popup.dismiss())
+        btn_enregistrer.bind(on_press=enregistrer)
+        popup.open()
+
+    def sauvegarder_config_json(self, produits):
+        chemin_temporaire = self.path_json + ".tmp"
+        try:
+            with open(chemin_temporaire, 'w', encoding='utf-8') as f:
+                json.dump(produits, f, ensure_ascii=False, indent=4)
+            os.replace(chemin_temporaire, self.path_json)
+        except Exception:
+            if os.path.exists(chemin_temporaire):
+                try:
+                    os.remove(chemin_temporaire)
+                except OSError as e:
+                    print(f"Erreur de nettoyage du fichier temporaire : {e}")
+            raise
+
+    def sauvegarder_session_txt(self):
+        chemin_temporaire = self.path_txt + ".tmp"
+        try:
+            with open(chemin_temporaire, "w", encoding='utf-8') as f:
+                json.dump({
+                    'stats': self.glob_stats,
+                    'total': self.grand_total_argent,
+                    'historique_ventes': self.historique_ventes
+                }, f, ensure_ascii=False)
+            os.replace(chemin_temporaire, self.path_txt)
+        except Exception:
+            if os.path.exists(chemin_temporaire):
+                try:
+                    os.remove(chemin_temporaire)
+                except OSError as e:
+                    print(f"Erreur de nettoyage du fichier temporaire : {e}")
+            raise
+
+    def afficher_message(self, titre, message):
+        contenu = BoxLayout(orientation='vertical', spacing=dp(10), padding=dp(10))
+        contenu.add_widget(Label(text=message))
+        bouton = Button(text="OK", size_hint_y=None, height=dp(45))
+        contenu.add_widget(bouton)
+        popup = Popup(title=titre, content=contenu, size_hint=(0.9, 0.4))
+        bouton.bind(on_press=popup.dismiss)
+        popup.open()
+
     def modifier_quantite(self, pid, delta):
-        if self.cur_stats[pid] + delta + self.glob_stats[pid] >= 0: # On ne peut pas vendre plus que ce qu'on a
+        if self.cur_stats[pid] + delta + self.glob_stats.get(pid, 0) >= 0: # On ne peut pas vendre plus que ce qu'on a
             self.cur_stats[pid] += delta
             getattr(self, f"lbl_cur_{pid}").text = str(self.cur_stats[pid])
             # Recalcul du prix total de la vente
@@ -162,7 +348,23 @@ class LotoUniversel(BoxLayout):
         for p in self.produits:
             p_id = p['id']
             # C'est ici que l'erreur 'c10' arrivait si on forçait l'ID
-            self.glob_stats[p_id] += self.cur_stats[p_id]
+            quantite = self.cur_stats[p_id]
+            self.glob_stats[p_id] = self.glob_stats.get(p_id, 0) + quantite
+            if quantite > 0:
+                ligne_existante = next((
+                    ligne for ligne in self.historique_ventes
+                    if ligne['id'] == p_id and ligne['nom'] == p['nom']
+                    and ligne['prix'] == p['prix']
+                ), None)
+                if ligne_existante:
+                    ligne_existante['quantite'] += quantite
+                else:
+                    self.historique_ventes.append({
+                        'id': p_id,
+                        'nom': p['nom'],
+                        'prix': p['prix'],
+                        'quantite': quantite
+                    })
             self.cur_stats[p_id] = 0 # On remet à zéro pour la prochaine vente
             
         self.grand_total_argent += self.cur_prix_vente
@@ -177,9 +379,9 @@ class LotoUniversel(BoxLayout):
     def sauvegarde_fichiers(self):
         # 1. Sauvegarde TXT (Format JSON pour être plus robuste)
         try:
-            with open(self.path_txt, "w") as f:
-                json.dump({'stats': self.glob_stats, 'total': self.grand_total_argent}, f)
-        except: pass
+            self.sauvegarder_session_txt()
+        except OSError as e:
+            print(f"Erreur lors de la sauvegarde de la session : {e}")
 
         # 2. Sauvegarde EXCEL
         try:
@@ -193,18 +395,18 @@ class LotoUniversel(BoxLayout):
             for c, h in enumerate(headers): ws.write(0, c, h, fmt_bold)
             
             row_idx = 1
-            for p in self.produits:
-                qte = self.glob_stats[p['id']]
-                ws.write(row_idx, 0, p['nom'])
-                ws.write(row_idx, 1, qte)
-                ws.write(row_idx, 2, p['prix'], fmt_money)
-                ws.write(row_idx, 3, qte * p['prix'], fmt_money)
+            for ligne in self.historique_ventes:
+                ws.write(row_idx, 0, ligne['nom'])
+                ws.write(row_idx, 1, ligne['quantite'])
+                ws.write(row_idx, 2, ligne['prix'], fmt_money)
+                ws.write(row_idx, 3, ligne['quantite'] * ligne['prix'], fmt_money)
                 row_idx += 1
             
             ws.write(row_idx + 1, 2, "TOTAL GÉNÉRAL", fmt_res)
             ws.write(row_idx + 1, 3, self.grand_total_argent, fmt_res_money)
             wb.close()
-        except: pass
+        except Exception as e:
+            print(f"Erreur lors de la sauvegarde du fichier Excel : {e}")
 class LotoApp(App):
     def build(self):
         if platform == 'android':
